@@ -144,7 +144,7 @@ class DataReader:
                             #    pickle.dump(frames, f)
                             jpgs = []
                             for frame in frames:
-                                im = Image.fromarray(frames[0])
+                                im = Image.fromarray(frame)
                                 b = BytesIO()
                                 im.save(b,  'jpeg')
                                 jpgs.append(b)
