@@ -14,12 +14,12 @@ def scanner_frames_from_obs(obs):
         # for testing or if we haven't gotten image data yet
         scanner_frames = np.zeros((4, 256, 256, 1), np.uint8)
     else:
-        # images = [
-        #     cv2.imdecode(np.frombuffer(jpg_frame, np.uint8), 0)
-        #     for jpg_frame in jpg_frames]
         images = [
-            np.array(Image.open(jpg_frame, "jpeg"))
+            cv2.imdecode(np.frombuffer(jpg_frame, np.uint8), 0)
             for jpg_frame in jpg_frames]
+        # images = [
+        #     np.array(Image.open(jpg_frame, "jpeg"))
+        #     for jpg_frame in jpg_frames]
         small_images = [
             # INTER_AREA interpolation preserves better fine features when downsizing images
             cv2.resize(image, (256, 256), interpolation=cv2.INTER_AREA)
