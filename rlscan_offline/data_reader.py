@@ -55,6 +55,7 @@ class DataReader:
         return sms_data, urls
 
     def download_thread_body(self, new_urls):
+        print("starting downloading thread")
         try:
             for i_url in range(0, len(new_urls), 100):
                 tic = time.time()
@@ -114,8 +115,10 @@ class DataReader:
                 th.start()
                 th.join(timeout=600)
                 if not th.is_alive():
+                    print("downloading thread exited properly")
                     break
                 time.sleep(120)
+                print("downloading thread hanged, re-creating s3_downloader")
                 self.s3_download = S3Downloader(save_dir=self.SAVE_DIR_TEMP)
 
 
