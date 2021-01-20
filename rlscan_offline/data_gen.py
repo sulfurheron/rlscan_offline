@@ -13,8 +13,8 @@ class DataGen:
     def __init__(
             self,
             datadir="/media/dmitriy/HDD/offline",
-            num_workers=6,
-            img_dim=(4, 256, 256, 1)
+            num_workers=10,
+            img_dim=(256, 256, 2)
     ):
         self.datadir = datadir
         self._img_keys = {
@@ -26,7 +26,7 @@ class DataGen:
             'val': {}
         }
         self.batch_size = {
-            'train': 20,
+            'train': 10,
             'val': 20
         }
         self.data_size = {
@@ -105,7 +105,8 @@ class DataGen:
                     if not locked:
                         continue
                     data, labels = self.load_batch(ix[start: start + self.batch_size[dataset]], dataset=dataset)
-                    data = np.expand_dims(np.array(data), axis=-1)
+                    data = np.array(data)
+                    #data = np.expand_dims(np.array(data), axis=-1)
                     labels = np.array(labels, dtype='uint8')
                     np.copyto(self._batch_dict[dataset][id]["data"], data)
                     np.copyto(self._batch_dict[dataset][id]["labels"], labels)
@@ -155,8 +156,9 @@ class DataGen:
         filename = filename[filename.find("/"):][1:]
         with open(os.path.join(self.datadir, filename), "rb") as f:
             jpg_frames = pickle.load(f)
-        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
+        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames[:2]]
         imgs = np.stack(imgs).astype('float32')/255.0
+        imgs = np.transpose(imgs, axes=[1, 2, 0])
         return imgs
 
 

@@ -4,6 +4,7 @@ import pytz
 import numpy as np
 import pandas as pd
 from io import BytesIO
+from threading import Thread
 
 from rlscan.policies.utils import pose_features_from_obs_acs_cont
 from rlscan_offline.utils import scanner_frames_from_obs
@@ -53,6 +54,19 @@ class DataReader:
         print("Found {} episodes in the specified interval".format(len(urls)))
         return sms_data, urls
 
+    def download_thread_body(self, new_urls):
+        try:
+            for i_url in range(0, len(new_urls), 100):
+                tic = time.time()
+                start_ind = i_url
+                end_ind = min(i_url + 100, len(new_urls))
+                slice = new_urls[start_ind: end_ind]
+                self.s3_download.download(slice)
+                print("Downloaded {} of {} files. Time taken: {}s".format(end_ind, len(new_urls), time.time() - tic))
+        except Exception as e:
+            print("Error downloading data", e)
+
+
     def pull_new_data_batch(self):
         total_steps = 0
         total_episodes = 0
@@ -95,18 +109,15 @@ class DataReader:
                 except OSError as e:
                     print("Error cleaning directory: %s : %s" % (self.SAVE_DIR_TEMP, e.strerror))
             os.mkdir(self.SAVE_DIR_TEMP)
-            try:
-                for i_url in range(0, len(new_urls), 100):
-                    tic = time.time()
-                    start_ind = i_url
-                    end_ind = min(i_url + 100, len(new_urls))
-                    slice = new_urls[start_ind: end_ind]
-                    self.s3_download.download(slice)
-                    print("Downloaded {} of {} files. Time taken: {}s".format(end_ind, len(new_urls), time.time() - tic))
-            except Exception as e:
-                print("Error downloading data", e)
-                time.sleep(300)
-                continue
+            while True:
+                th = Thread(target=self.download_thread_body, args=(new_urls,))
+                th.start()
+                th.join(timeout=600)
+                if not th.is_alive():
+                    break
+                time.sleep(120)
+                self.s3_download = S3Downloader(save_dir=self.SAVE_DIR_TEMP)
+
 
             # Create a list of downloaded files and save it locally as a data manifest
             filepaths = glob.glob(self.SAVE_DIR_TEMP + "/*/*.pb")

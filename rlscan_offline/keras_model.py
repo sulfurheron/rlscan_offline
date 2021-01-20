@@ -32,7 +32,10 @@ class KerasDataGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return self.data_gen.data_size[self.dataset]//self.data_gen.batch_size[self.dataset]
+        batches_per_epoch = self.data_gen.data_size[self.dataset]//self.data_gen.batch_size[self.dataset]
+        if self.dataset == "train":
+            batches_per_epoch //= 50
+        return batches_per_epoch
 
     def __getitem__(self, index):
         'Generate one batch of data'
@@ -73,7 +76,7 @@ class ResnetModel:
 
     def __init__(self,
                  num_classes=2,
-                 learning_rate=3e-4,
+                 learning_rate=1e-5,
                  epochs=15,
                  opt_batch=40,
                  aggregate_grads=True,
@@ -100,25 +103,31 @@ class ResnetModel:
     def build_model(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
-        x = TimeDistributed(Conv2D(32, (5, 5), strides=(2, 2),
-                                         activation="relu",
-                                         padding='same'))(self.img)
-        x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-                                         activation="relu",
-                                         padding='same'))(x)
-        x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-                                         activation="relu",
-                                         padding='same'))(x)
-        x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-                                         activation="relu",
-                                         padding='same'))(x)
-        x = TimeDistributed(Conv2D(64, (3, 3), strides=(2, 2),
-                                         activation="relu",
-                                         padding='same'))(x)
-        x = TimeDistributed(Flatten())(x)
-        x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
+        # x = TimeDistributed(Conv2D(32, (5, 5), strides=(2, 2),
+        #                                  activation="relu",
+        #                                  padding='same'))(self.img)
+        # x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
+        #                                  activation="relu",
+        #                                  padding='same'))(x)
+        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+        #                                  activation="relu",
+        #                                  padding='same'))(x)
+        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(1, 1),
+        #                                  activation="relu",
+        #                                  padding='same'))(x)
+        # x = TimeDistributed(Conv2D(128, (3, 3), strides=(1, 1),
+        #                                  activation="relu",
+        #                                  padding='same'))(x)
+        #x = TimeDistributed(GlobalMaxPooling2D())(x)
+        x = densenet.DenseNet121(include_top=False,
+                                weights=None,
+                                #input_tensor=x,
+                                input_shape=(self.input_shape),
+                                pooling="max")(self.img)
+        #x = TimeDistributed(Flatten())(x)
+        #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
+        #x = Dense(128, activation='tanh', name='lin1')(x)
         x = Dropout(0.5)(x)
-        x = Dense(256, activation='relu', name='lin1')(x)
         self.output = Dense(self.num_classes, activation="softmax")(x)
         self.model = Model(inputs=self.img, outputs=self.output)
         custom_metrics = LabelDistribution()
