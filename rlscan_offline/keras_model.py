@@ -29,23 +29,35 @@ class KerasDataGenerator(keras.utils.Sequence):
         self.n_classes = n_classes
         self.shuffle = shuffle
         self.dataset = dataset
+        self.ix_count = np.zeros(self.data_gen.data_size[dataset])
 
     def __len__(self):
         'Denotes the number of batches per epoch'
         batches_per_epoch = self.data_gen.data_size[self.dataset]//self.data_gen.batch_size[self.dataset]
         if self.dataset == "train":
-            batches_per_epoch //= 50
+            batches_per_epoch //= 5
         return batches_per_epoch
 
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
         data, labels = next(self.data_gen.generate_batch(dataset=self.dataset))
+        for im in data:
+            self.ix_count[int(im[0, 0, 0])] += 1
         labels = to_categorical(labels, num_classes=self.n_classes)
+        labels[labels == 0] = 0.1
+        labels[labels == 1] = 0.9
+        # if self.dataset == "val":
+        #     print("counts", np.sum(self.ix_count == 1))
+        # elif self.dataset == "train":
+        #     print("train counts", np.sum(self.ix_count == 1))
         return data, labels
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
+        cvn = 2
+        print("train counts", np.sum(self.ix_count == 1))
+        self.ix_count.fill(0.0)
         return
 
 
@@ -76,7 +88,7 @@ class ResnetModel:
 
     def __init__(self,
                  num_classes=2,
-                 learning_rate=1e-5,
+                 learning_rate=1e-4,
                  epochs=15,
                  opt_batch=40,
                  aggregate_grads=True,
@@ -103,27 +115,27 @@ class ResnetModel:
     def build_model(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
-        # x = TimeDistributed(Conv2D(32, (5, 5), strides=(2, 2),
-        #                                  activation="relu",
-        #                                  padding='same'))(self.img)
-        # x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-        #                                  activation="relu",
-        #                                  padding='same'))(x)
-        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-        #                                  activation="relu",
-        #                                  padding='same'))(x)
-        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(1, 1),
-        #                                  activation="relu",
-        #                                  padding='same'))(x)
-        # x = TimeDistributed(Conv2D(128, (3, 3), strides=(1, 1),
-        #                                  activation="relu",
-        #                                  padding='same'))(x)
-        #x = TimeDistributed(GlobalMaxPooling2D())(x)
-        x = densenet.DenseNet121(include_top=False,
-                                weights=None,
-                                #input_tensor=x,
-                                input_shape=(self.input_shape),
-                                pooling="max")(self.img)
+        x = Conv2D(32, (5, 5), strides=(2, 2),
+                                         activation="relu",
+                                         padding='same')(self.img)
+        x = Conv2D(64, (5, 5), strides=(2, 2),
+                                         activation="relu",
+                                         padding='same')(x)
+        x = Conv2D(128, (5, 5), strides=(2, 2),
+                                         activation="relu",
+                                         padding='same')(x)
+        x = Conv2D(128, (5, 5), strides=(1, 1),
+                                         activation="relu",
+                                         padding='same')(x)
+        x = Conv2D(128, (3, 3), strides=(1, 1),
+                                         activation="relu",
+                                         padding='same')(x)
+        x = GlobalMaxPooling2D()(x)
+        # x = densenet.DenseNet121(include_top=False,
+        #                         weights=None,
+        #                         #input_tensor=x,
+        #                         input_shape=(self.input_shape),
+        #                         pooling="max")(self.img)
         #x = TimeDistributed(Flatten())(x)
         #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
         #x = Dense(128, activation='tanh', name='lin1')(x)
@@ -157,6 +169,7 @@ class ResnetModel:
             #print("Loss: train {}, validation {}".format(logs['loss'], logs['val_loss']))
             # print("Validation accuracy: sensitivity {}, specificity {}".format(val_sens, val_spec))
             #print("Validation singles accuracy: sensitivity {}, specificity {}".format(val_sens_single, val_spec_single))
+            self.keras_data_gen_val.ix_count.fill(0.0)
             self.all_losses['train'].append(logs['loss'])
             self.all_losses['val'].append(logs['val_loss'])
             #self.save()
@@ -166,14 +179,16 @@ class ResnetModel:
                                         period=1
                                         )
         self.model.fit(x=self.keras_data_gen_train,
-                       epochs=100,
+                       epochs=self.epochs,
                        validation_data=self.keras_data_gen_val,
                        #steps_per_epoch=100 // self.data_gen.batch_size['train'],
                        #validation_steps=val_steps,
                        workers=0,
-                       #verbose=2,
-                       #callbacks=[on_epoch_end,
-                       #           save_callback]
+                       verbose=2,
+                       callbacks=[
+                           on_epoch_end,
+                           #save_callback
+                       ]
                        )
 
     def build_roc(self, labels, scores):
@@ -194,7 +209,7 @@ class ResnetModel:
         for var in tf.global_variables():
             if 'model' in var.name:
                 var_dict[var.name] = var.eval()
-        with open("saved_models/padded_resnet_distr_imagenet_model_{}.pkl".format(datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')), "wb") as f:
+        with open("saved_models/cnn_shared_5_layers_{}.pkl".format(datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')), "wb") as f:
             pickle.dump({'weights': var_dict,
                          "losses": self.all_losses,
                          "val_acc": self.accs}, f)
@@ -213,6 +228,19 @@ class ResnetModel:
 
 
 if __name__ == "__main__":
-    model = ResnetModel()
+    # dg = DataGen()
+    # keras_dg_train = KerasDataGenerator(data_gen=dg, dataset="train")
+    # keras_dg_val = KerasDataGenerator(data_gen=dg, dataset="val")
+    # while True:
+    #     time.sleep(5)
+    #     for mb in keras_dg_train:
+    #         cv = 1
+    #     for mb in keras_dg_val:
+    #         #print("counts", np.sum(keras_dg_val.ix_count == 1))
+    #         cvb = 1
+    #     print("end of loop")
+    #     keras_dg_val.ix_count.fill(0.0)
+    model = ResnetModel(epochs=10)
     model.train()
+    model.save()
 

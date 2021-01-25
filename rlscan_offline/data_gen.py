@@ -14,7 +14,7 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(256, 256, 2)
+            img_dim=(256, 256, 4)
     ):
         self.datadir = datadir
         self._img_keys = {
@@ -26,19 +26,27 @@ class DataGen:
             'val': {}
         }
         self.batch_size = {
-            'train': 10,
-            'val': 20
+            'train': 50,
+            'val': 50
         }
         self.data_size = {
+            'train': 0,
+            'val': 0
+        }
+        self.current_batch_id = {
             'train': 0,
             'val': 0
         }
         self.img_dim = img_dim
         self._batch_buffer_size = 10
         self._terminate = mp.Value('i', 0)
+        self._start = {
+            'train': mp.Value('i', 0),
+            'val': mp.Value('i', 0)
+        }
         self.progress_in_epoch = mp.Value('d', 0.0)
-        self._init_shared_variables()
         self._build_dataset()
+        self._init_shared_variables()
         self._start_workers(num_workers)
 
     def _init_shared_variables(self):
@@ -46,7 +54,19 @@ class DataGen:
         self._new_batch = {'train': {}, 'val': {}}
         self._batch_dict = {'train': {}, 'val': {}}
         self._locks = {'train': {}, 'val': {}}
+        self._ix_locks = {'train': mp.Lock(), 'val': mp.Lock()}
+        self._permuted_ix = {
+            'train': np.frombuffer(mp.Array('i', self.data_size['train']).get_obj(), dtype="int32"),
+            'val': np.frombuffer(mp.Array('i', self.data_size['val']).get_obj(), dtype="int32")
+        }
+        self._ix_processed = {
+            'train': np.frombuffer(mp.Array('i', self.data_size['train']).get_obj(), dtype="int32"),
+            'val': np.frombuffer(mp.Array('i', self.data_size['val']).get_obj(), dtype="int32")
+        }
         for dataset in ["train", "val"]:
+            ix = np.random.permutation(self.data_size[dataset]).astype('int32')
+            np.copyto(self._permuted_ix[dataset], ix)
+            np.copyto(self._ix_processed[dataset], np.ones_like(self._ix_processed[dataset]))
             batch_arr_size = self.batch_size[dataset] * np.product(self.img_dim)
             batch_shape = (self.batch_size[dataset],) + self.img_dim
             for i in range(self._batch_buffer_size):
@@ -71,10 +91,12 @@ class DataGen:
     def _build_dataset(self, val_split=0.1):
         with open(os.path.join(self.datadir, "metadata.pkl"), "rb") as f:
             metadata = pickle.load(f)
+        metadata['image_file'] = metadata['image_file']
         self.data_size['train'] = int(len(metadata['image_file']) * (1 - val_split))
         self._img_keys['train'] = metadata['image_file'][:self.data_size['train']]
         self._img_keys['val'] = metadata['image_file'][self.data_size['train']:]
         self.data_size['val'] = len(self._img_keys['val'])
+        print("data size", self.data_size)
         for i, img in enumerate(self._img_keys['train']):
             if not metadata['scanner_id'][i] is None:
                 self._labels['train'][img] = 1
@@ -94,33 +116,42 @@ class DataGen:
 
         This function is run by concurrent processes.
         """
-        image_keys = self._img_keys[dataset]
-        labels = self._labels[dataset]
-        ix = np.random.permutation(len(image_keys))
-        start = 0
+
+        if dataset == "val":
+            cvb = 1
         while not self._terminate.value:
             for id in self._new_batch[dataset]:
                 if not self._new_batch[dataset][id].value:
                     locked = self._locks[dataset][id].acquire(False)
                     if not locked:
                         continue
-                    data, labels = self.load_batch(ix[start: start + self.batch_size[dataset]], dataset=dataset)
+                    locked = self._ix_locks[dataset].acquire(timeout=1.0)
+                    if not locked:
+                        print("failed to get a lock")
+                        continue
+                    if self.data_size[dataset] - self._start[dataset].value < self.batch_size[dataset]:
+                        print("Reached the end of the dataset {}, resetting".format(dataset))
+                        ix = np.random.permutation(self.data_size[dataset]).astype('int32')
+                        np.copyto(self._permuted_ix[dataset], ix)
+                        np.copyto(self._ix_processed[dataset], np.zeros(self._ix_processed[dataset].shape, dtype="int32"))
+                        self._start[dataset].value = 0
+                    #np.copyto(self._ix_processed[dataset][self._start[dataset]: self._start[dataset] + self.batch_size[dataset]], np.ones(self.batch_size[dataset], dtype="int32"))
+                    ix_range = self._permuted_ix[dataset][self._start[dataset].value: self._start[dataset].value + self.batch_size[dataset]]
+                    self._start[dataset].value += self.batch_size[dataset]
+                    self._ix_locks[dataset].release()
+                    data, labels = self.load_batch(ix_range, dataset=dataset)
                     data = np.array(data)
                     #data = np.expand_dims(np.array(data), axis=-1)
                     labels = np.array(labels, dtype='uint8')
                     np.copyto(self._batch_dict[dataset][id]["data"], data)
                     np.copyto(self._batch_dict[dataset][id]["labels"], labels)
                     self._new_batch[dataset][id].value = 1
+                    #print("stored batch into id", id)
                     batches_aval = sum([self._new_batch[dataset][i].value for i in self._new_batch[dataset]])
-                    start += self.batch_size[dataset]
+                    #print("start", dataset, self._start[dataset].value)
                     if dataset == "train" and batches_aval < 8:
                         print("Prepared new batch, {} batches available".format(batches_aval))
-                    self.progress_in_epoch.value = (start + 0.0)/len(ix)
-                    if start >= len(ix) - self.batch_size[dataset]:
-                        if dataset == "val":
-                            print("Reached the end of validation data!")
-                        ix = np.random.permutation(len(image_keys))
-                        start = 0
+                    self.progress_in_epoch.value = (self._start[dataset].value + 0.0)/len(self._permuted_ix[dataset])
                     #break
                     self._locks[dataset][id].release()
             #print("Im sleeping")
@@ -131,14 +162,20 @@ class DataGen:
 
         To be used by an external training function.
         """
+        id = self.current_batch_id[dataset]
         while True:
-            for id in self._new_batch[dataset]:
-                if self._new_batch[dataset][id].value:
-                    self._new_batch[dataset][id].value = 0
-                    ix = np.random.permutation(self._batch_dict[dataset][id]["data"].shape[0])
-                    yield np.copy(self._batch_dict[dataset][id]["data"])[ix],\
-                          np.copy(self._batch_dict[dataset][id]["labels"])[ix].astype("float32")
-            time.sleep(0.1)
+            if self._new_batch[dataset][id].value:
+                #print("reading batch from id", id)
+                ix = np.random.permutation(self._batch_dict[dataset][id]["data"].shape[0])
+                data = np.copy(self._batch_dict[dataset][id]["data"])[ix]
+                labels = np.copy(self._batch_dict[dataset][id]["labels"])[ix].astype("float32")
+                self._new_batch[dataset][id].value = 0
+                self.current_batch_id[dataset] += 1
+                if not self.current_batch_id[dataset] in self._new_batch[dataset]:
+                    self.current_batch_id[dataset] = 0
+                yield data, labels
+            else:
+                time.sleep(0.01)
 
     def load_batch(self, ix, dataset='train'):
         """Loads a batch of images defined by indices in ix list."""
@@ -148,7 +185,17 @@ class DataGen:
             filename = self._img_keys[dataset][i]
             img = self.load_image(filename)
             images.append(img)
+            img[0, 0, 0] = i + 0.0
             labels.append(self._labels[dataset][filename])
+            # if labels[-1] == 0:
+            #     plt.figure(figsize=(10, 2.8))
+            #     for i in range(4):
+            #         plt.subplot(1, 4, i + 1)
+            #         plt.imshow(img[:, :, i] - np.mean(img[:, :, i]), cmap='gray')
+            #         plt.xticks([])
+            #         plt.yticks([])
+            #     plt.subplots_adjust(left=0, right=1)
+            #     plt.show()
         return images, labels
 
     def load_image(self, filename):
@@ -156,7 +203,7 @@ class DataGen:
         filename = filename[filename.find("/"):][1:]
         with open(os.path.join(self.datadir, filename), "rb") as f:
             jpg_frames = pickle.load(f)
-        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames[:2]]
+        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
         imgs = np.stack(imgs).astype('float32')/255.0
         imgs = np.transpose(imgs, axes=[1, 2, 0])
         return imgs
