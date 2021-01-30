@@ -14,7 +14,8 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(256, 256, 4)
+            img_dim=(4, 256, 256, 1),
+            crop_size=50,
     ):
         self.datadir = datadir
         self._img_keys = {
@@ -38,6 +39,7 @@ class DataGen:
             'val': 0
         }
         self.img_dim = img_dim
+        self.crop_size = crop_size
         self._batch_buffer_size = 10
         self._terminate = mp.Value('i', 0)
         self._start = {
@@ -149,7 +151,7 @@ class DataGen:
                     #print("stored batch into id", id)
                     batches_aval = sum([self._new_batch[dataset][i].value for i in self._new_batch[dataset]])
                     #print("start", dataset, self._start[dataset].value)
-                    if dataset == "train" and batches_aval < 8:
+                    if dataset == "train" and batches_aval < -8:
                         print("Prepared new batch, {} batches available".format(batches_aval))
                     self.progress_in_epoch.value = (self._start[dataset].value + 0.0)/len(self._permuted_ix[dataset])
                     #break
@@ -183,9 +185,9 @@ class DataGen:
         labels = []
         for i in ix:
             filename = self._img_keys[dataset][i]
-            img = self.load_image(filename)
+            img = self.load_image(filename, dataset)
             images.append(img)
-            img[0, 0, 0] = i + 0.0
+            #img[0, 0, 0] = i + 0.0
             labels.append(self._labels[dataset][filename])
             # if labels[-1] == 0:
             #     plt.figure(figsize=(10, 2.8))
@@ -198,14 +200,28 @@ class DataGen:
             #     plt.show()
         return images, labels
 
-    def load_image(self, filename):
+    def preprocess_image(self, img, dataset):
+        img = (img/255.0).astype('float32')
+        img -= np.mean(img)
+        if not dataset == "train":
+            return img
+        shift = np.random.randint(0, self.crop_size, size=(2))
+        new_img = np.zeros(tuple(np.array(img.shape) + self.crop_size), dtype="float32")
+        new_img[self.crop_size//2:-self.crop_size//2, self.crop_size//2:-self.crop_size//2] = img
+        return new_img[shift[0]:shift[0] + self.img_dim[1], shift[1]:shift[1] + self.img_dim[2]]
+
+
+
+
+    def load_image(self, filename, dataset):
         filename = filename[filename.find("offline"):]
         filename = filename[filename.find("/"):][1:]
         with open(os.path.join(self.datadir, filename), "rb") as f:
             jpg_frames = pickle.load(f)
         imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
-        imgs = np.stack(imgs).astype('float32')/255.0
-        imgs = np.transpose(imgs, axes=[1, 2, 0])
+        imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
+        imgs = np.expand_dims(imgs, axis=-1)
+        #imgs = np.transpose(imgs, axes=[1, 2, 0])
         return imgs
 
 
