@@ -48,8 +48,8 @@ class KerasDataGenerator(keras.utils.Sequence):
             self.ix_count[int(im[0, 0, 0])] += 1
             data[i, 0, 0, 0] = 0
         labels = to_categorical(labels, num_classes=self.n_classes)
-        #labels[labels == 0] = 0.1
-        #labels[labels == 1] = 0.9
+        #labels[labels == 0] = 0.01
+        #labels[labels == 1] = 0.99
         # if self.dataset == "val":
         #     print("counts", np.sum(self.ix_count == 1))
         # elif self.dataset == "train":
@@ -94,9 +94,10 @@ class ResnetModel:
                  learning_rate=1e-4,
                  epochs=15,
                  aggregate_grads=True,
-                 gpu=0
+                 gpu=0,
+                 separate_validation=False
                  ):
-        self.data_gen = DataGen()
+        self.data_gen = DataGen(separate_validation=separate_validation)
         self.keras_data_gen_train = KerasDataGenerator(data_gen=self.data_gen, dataset="train")
         self.keras_data_gen_val = KerasDataGenerator(data_gen=self.data_gen, dataset="val")
         self.input_shape = self.data_gen.img_dim
@@ -116,34 +117,46 @@ class ResnetModel:
     def build_model(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
+        x = self.img
         x = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4),
                    activation="relu",
                    padding='same'))(self.img)
-        x = TimeDistributed(Dropout(0.5))(x)
+        #x = TimeDistributed(Dropout(0.5))(x)
         x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
                    activation="relu",
                    padding='same'))(x)
-        x = TimeDistributed(Dropout(0.5))(x)
+        #x = TimeDistributed(Dropout(0.5))(x)
+        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same'))(x)
+        # x = TimeDistributed(Dropout(0.5))(x)
+        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same'))(x)
+        # x = TimeDistributed(Dropout(0.5))(x)
+        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same'))(x)
         outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
         new_outs = []
         for i, x in enumerate(outs):
-            # x = Conv2D(32, (5, 5), strides=(2, 2),
+            # x = Conv2D(32, (8, 8), strides=(4, 4),
             #                                  activation="relu",
             #                                  padding='same')(x)
             # x = Conv2D(64, (5, 5), strides=(2, 2),
             #                                  activation="relu",
             #                                  padding='same')(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
-            x = Dropout(0.5)(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
-            x = Dropout(0.5)(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
+            # #x = TimeDistributed(Dropout(0.5))(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
+            # #x = TimeDistributed(Dropout(0.5))(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
             #x = TimeDistributed(Dropout(0.5))(x)
             #x = Flatten()(x)
             x = GlobalMaxPooling2D()(x)
@@ -156,15 +169,15 @@ class ResnetModel:
         #x = TimeDistributed(Flatten())(x)
         #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
         x = Concatenate(axis=-1)(new_outs)
-        #x = Dense(128, activation='tanh', name='lin1')(x)
-        x = Dropout(0.5)(x)
+        # x = Dense(128, activation='relu', name='lin1')(x)
+        #x = Dropout(0.5)(x)
         self.output = Dense(self.num_classes, activation="softmax")(x)
         self.model = Model(inputs=self.img, outputs=self.output)
         custom_metrics = LabelDistribution()
         self.model.compile(
             loss="categorical_crossentropy",
             optimizer=Adam(learning_rate=self.learning_rate),
-            metrics=["accuracy", custom_metrics],
+            metrics=["accuracy"],
         )
 
     def init_session(self):
@@ -297,7 +310,7 @@ class ResnetModel:
 
             for i in range(len(data)):
                 data[i, 0, 0, 0] = 0
-                if logits[i, 1] < 0.1 or logits[i, 1] > 0.8:
+                if logits[i, 1] < 0.1 or logits[i, 1] > 1.8:
                     imgs_to_show.append(data[i])
                     labels_to_show.append(labels[i])
                     logits_to_show.append(logits[i])
@@ -306,6 +319,7 @@ class ResnetModel:
             if len(imgs_to_show) >= im_num:
                 plt.figure(figsize=(20, 12))
                 for i in range(im_num):
+                    np.save("images/current_im.npy", imgs_to_show[i])
                     for j in range(4):
                         plt.subplot(1, 4, i * 4 + j + 1)
                         plt.imshow(imgs_to_show[i][j, :, :, 0], cmap='gray')
@@ -363,10 +377,10 @@ if __name__ == "__main__":
     #     print("end of loop")
     #     keras_dg_val.ix_count.fill(0.0)
     model = ResnetModel(epochs=500)
-    #model.load("saved_models/cnn_shared_5_layers_2021-01-28-22-47-32.pkl")
+    #model.load("saved_models/cnn_shared_5_layers_0.714248776435852_2021-02-01-10-00-25.pkl")
     #model.evaluate_on_validation_set()
     #model.show_pictures()
     #model.show_score_hist()
     model.train()
-    model.save()
+    #model.save()
 

@@ -16,8 +16,10 @@ class DataGen:
             num_workers=10,
             img_dim=(4, 256, 256, 1),
             crop_size=50,
+            separate_validation=False,
     ):
         self.datadir = datadir
+        self.separate_validation = separate_validation
         self._img_keys = {
             'train': [],
             "val": []
@@ -93,25 +95,35 @@ class DataGen:
     def _build_dataset(self, val_split=0.1):
         with open(os.path.join(self.datadir, "metadata.pkl"), "rb") as f:
             metadata = pickle.load(f)
-        metadata['image_file'] = metadata['image_file']
+        val_metadata = metadata
+        if self.separate_validation:
+            with open(os.path.join(self.datadir, "separate_validation/val_metadata.pkl"), "rb") as f:
+                val_metadata = pickle.load(f)
         self.data_size['train'] = int(len(metadata['image_file']) * (1 - val_split))
         self._img_keys['train'] = metadata['image_file'][:self.data_size['train']]
         self._img_keys['val'] = metadata['image_file'][self.data_size['train']:]
         self.data_size['val'] = len(self._img_keys['val'])
+        if self.separate_validation:
+            self.data_size['val'] = len(val_metadata['image_file'])
+            self._img_keys['val'] = val_metadata['image_file']
         print("data size", self.data_size)
         for i, img in enumerate(self._img_keys['train']):
             if not metadata['scanner_id'][i] is None:
                 self._labels['train'][img] = 1
             else:
                 self._labels['train'][img] = 0
+        if self.separate_validation:
+            val_start = 0
+        else:
+            val_start = self.data_size['train']
         for i, img in enumerate(self._img_keys['val']):
-            if not metadata['scanner_id'][self.data_size['train'] + i] is None:
+            if not val_metadata['scanner_id'][val_start + i] is None:
                 self._labels['val'][img] = 1
             else:
                 self._labels['val'][img] = 0
         print("class 1 train", np.sum(list(self._labels['train'].values())), "class 0 train", len(self._labels['train']) - np.sum(list(self._labels['train'].values())))
         print("class 1 val", np.sum(list(self._labels['val'].values())), "class 0 val", len(self._labels['val']) - np.sum(list(self._labels['val'].values())))
-        return metadata
+
 
     def prepare_minibatch(self, dataset="train"):
         """Builds minibatches and stores them to shared memory.
@@ -216,8 +228,12 @@ class DataGen:
     def load_image(self, filename, dataset):
         filename = filename[filename.find("offline"):]
         filename = filename[filename.find("/"):][1:]
-        with open(os.path.join(self.datadir, filename), "rb") as f:
-            jpg_frames = pickle.load(f)
+        if dataset == 'val' and self.separate_validation:
+            with open(os.path.join(self.datadir, "separate_validation", filename), "rb") as f:
+                jpg_frames = pickle.load(f)
+        else:
+            with open(os.path.join(self.datadir, filename), "rb") as f:
+                jpg_frames = pickle.load(f)
         imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
         imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
         imgs = np.expand_dims(imgs, axis=-1)
