@@ -29,8 +29,8 @@ class DataGen:
             'val': {}
         }
         self.batch_size = {
-            'train': 50,
-            'val': 50
+            'train': 5,
+            'val': 10
         }
         self.data_size = {
             'train': 0,
@@ -170,8 +170,8 @@ class DataGen:
                     if not locked2:
                         print("failed to get a lock")
                         continue
-                    if time.time() - start_time > 1e-3:
-                        print("proc {} waited for lock2 {}".format(proc_id, time.time() - start_time))
+                    # if time.time() - start_time > 1e-3:
+                    #     print("proc {} waited for lock2 {}".format(proc_id, time.time() - start_time))
                     #if self.data_size[dataset] - self._start[dataset].value < self.batch_size[dataset]:
                     if not len(self.unprocessed_batches[dataset]):
                         print("Reached the end of the dataset {} resetting".format(dataset))
@@ -194,9 +194,9 @@ class DataGen:
                     self._ix_locks[dataset].release()
                     if len(ix_range) < self.batch_size[dataset]:
                         continue
-                    load_start = time.time()
+                    #load_start = time.time()
                     data, labels = self.load_batch(ix_range, dataset=dataset)
-                    print("proc id {} loaded data in {}".format(proc_id, time.time() - load_start))
+                    #print("proc id {} loaded data in {}".format(proc_id, time.time() - load_start))
                     data = np.array(data)
                     #data = np.expand_dims(np.array(data), axis=-1)
                     labels = np.array(labels, dtype='uint8')
@@ -212,7 +212,7 @@ class DataGen:
                     self.progress_in_epoch.value = (self._start[dataset].value + 0.0)/len(self._permuted_ix[dataset])
                     #break
                     self._locks[dataset][id].release()
-                    print("proc_id {} finished scan attempt in {}".format(proc_id, time.time() - scan_attempt_start))
+                    #print("proc_id {} finished scan attempt in {}".format(proc_id, time.time() - scan_attempt_start))
                     scan_attempt_start = time.time()
             #print("Im sleeping")
             time.sleep(0.1)
@@ -261,8 +261,8 @@ class DataGen:
 
     def preprocess_image(self, img, dataset):
         img = (img/255.0).astype('float32')
-        #img -= np.mean(img)
-        if True or not dataset == "train":
+        img -= np.mean(img)
+        if not dataset == "train":
             return img
         shift = np.random.randint(0, self.crop_size, size=(2))
         new_img = np.zeros(tuple(np.array(img.shape) + self.crop_size), dtype="float32")

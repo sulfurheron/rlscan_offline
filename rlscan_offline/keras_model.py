@@ -8,7 +8,7 @@ from keras.utils import to_categorical
 from keras.models import Model
 import time
 import datetime
-from keras.applications import resnet50, densenet, nasnet, mobilenet_v2
+from keras.applications import resnet50, densenet, nasnet, mobilenet_v2, xception
 from keras.optimizers import Adam
 from sklearn.metrics import roc_curve, roc_auc_score
 import matplotlib.pyplot as plt
@@ -48,22 +48,22 @@ class KerasDataGenerator(keras.utils.Sequence):
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
-        print("epoch processing time", time.time() - self.epoch_proc_time)
-        start_time = time.time()
+        #print("epoch processing time", time.time() - self.epoch_proc_time)
+        #start_time = time.time()
         data, labels = next(self.data_gen.generate_batch(dataset=self.dataset))
-        print("epoch acquisition time", time.time() - start_time)
+        #print("epoch acquisition time", time.time() - start_time)
         for i, im in enumerate(data):
             self.ix_count[int(im[0, 0, 0])] += 1
             data[i, 0, 0, 0] = 0
         labels = to_categorical(labels, num_classes=self.n_classes)
         #labels[labels == 0] = 0.01
         #labels[labels == 1] = 0.99
-        if self.dataset == "val":
-            print("val counts", np.sum(self.ix_count == 1))
-        elif self.dataset == "train":
-            print("train counts", np.sum(self.ix_count == 1))
+        # if self.dataset == "val":
+        #     print("val counts", np.sum(self.ix_count == 1))
+        # elif self.dataset == "train":
+        #     print("train counts", np.sum(self.ix_count == 1))
         #print("batch index", index)
-        self.epoch_proc_time = time.time()
+        #self.epoch_proc_time = time.time()
         return data, labels
 
     def on_epoch_end(self):
@@ -129,15 +129,15 @@ class ResnetModel:
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img
-        x = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4),
-                   activation="relu",
-                   padding='same'))(self.img)
-        x = BatchNormalization()(x)
-        #x = TimeDistributed(Dropout(0.5))(x)
-        x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-                   activation="relu",
-                   padding='same'))(x)
-        x = BatchNormalization()(x)
+        # x = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4),
+        #            activation="relu",
+        #            padding='same'))(self.img)
+        # x = BatchNormalization()(x)
+        # #x = TimeDistributed(Dropout(0.5))(x)
+        # x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
+        #            activation="relu",
+        #            padding='same'))(x)
+        # x = BatchNormalization()(x)
         #x = TimeDistributed(Dropout(0.5))(x)
         # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
         #            activation="relu",
@@ -150,6 +150,12 @@ class ResnetModel:
         # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
         #            activation="relu",
         #            padding='same'))(x)
+        x = TimeDistributed(xception.Xception(
+            weights=None,
+            input_shape=(self.input_shape[1:]),
+            include_top=False,
+            pooling='max'
+        ))(x)
         outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
         new_outs = []
         for i, x in enumerate(outs):
@@ -159,23 +165,23 @@ class ResnetModel:
             # x = Conv2D(64, (5, 5), strides=(2, 2),
             #                                  activation="relu",
             #                                  padding='same')(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
-            x = BatchNormalization()(x)
-            #x = TimeDistributed(Dropout(0.5))(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
-            x = BatchNormalization()(x)
-            #x = TimeDistributed(Dropout(0.5))(x)
-            x = Conv2D(128, (5, 5), strides=(2, 2),
-                                             activation="relu",
-                                             padding='same')(x)
-            x = BatchNormalization()(x)
-            #x = TimeDistributed(Dropout(0.5))(x)
-            #x = Flatten()(x)
-            x = GlobalMaxPooling2D()(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
+            # x = BatchNormalization()(x)
+            # #x = TimeDistributed(Dropout(0.5))(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
+            # x = BatchNormalization()(x)
+            # #x = TimeDistributed(Dropout(0.5))(x)
+            # x = Conv2D(128, (5, 5), strides=(2, 2),
+            #                                  activation="relu",
+            #                                  padding='same')(x)
+            # x = BatchNormalization()(x)
+            # #x = TimeDistributed(Dropout(0.5))(x)
+            # #x = Flatten()(x)
+            # x = GlobalMaxPooling2D()(x)
             new_outs.append(x)
         # x = densenet.DenseNet121(include_top=False,
         #                         weights=None,
@@ -195,6 +201,7 @@ class ResnetModel:
             optimizer=Adam(learning_rate=self.learning_rate),
             metrics=["accuracy"],
         )
+        cv=1
 
     def init_session(self):
         config = tf.ConfigProto(
