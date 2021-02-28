@@ -13,6 +13,7 @@ from keras.optimizers import Adam
 from sklearn.metrics import roc_curve, roc_auc_score
 import matplotlib.pyplot as plt
 from keras.regularizers import l2
+import argparse
 
 
 from rlscan_offline.data_gen import DataGen
@@ -31,29 +32,38 @@ class KerasDataGenerator(keras.utils.Sequence):
         self.n_classes = n_classes
         self.shuffle = shuffle
         self.dataset = dataset
+        self.epoch_proc_time = time.time()
         self.ix_count = np.zeros(self.data_gen.data_size[dataset])
 
     def __len__(self):
         'Denotes the number of batches per epoch'
         batches_per_epoch = self.data_gen.data_size[self.dataset]//self.data_gen.batch_size[self.dataset]
         if self.dataset == "train":
-            batches_per_epoch //= 3
+            if self.data_gen.data_size[self.dataset] > 1e6:
+                batches_per_epoch //= 20
+            else:
+                batches_per_epoch //= 3
         return batches_per_epoch
 
     def __getitem__(self, index):
         'Generate one batch of data'
         # Generate indexes of the batch
+        print("epoch processing time", time.time() - self.epoch_proc_time)
+        start_time = time.time()
         data, labels = next(self.data_gen.generate_batch(dataset=self.dataset))
+        print("epoch acquisition time", time.time() - start_time)
         for i, im in enumerate(data):
             self.ix_count[int(im[0, 0, 0])] += 1
             data[i, 0, 0, 0] = 0
         labels = to_categorical(labels, num_classes=self.n_classes)
         #labels[labels == 0] = 0.01
         #labels[labels == 1] = 0.99
-        # if self.dataset == "val":
-        #     print("counts", np.sum(self.ix_count == 1))
-        # elif self.dataset == "train":
-        #     print("train counts", np.sum(self.ix_count == 1))
+        if self.dataset == "val":
+            print("val counts", np.sum(self.ix_count == 1))
+        elif self.dataset == "train":
+            print("train counts", np.sum(self.ix_count == 1))
+        #print("batch index", index)
+        self.epoch_proc_time = time.time()
         return data, labels
 
     def on_epoch_end(self):
@@ -95,9 +105,10 @@ class ResnetModel:
                  epochs=15,
                  aggregate_grads=True,
                  gpu=0,
-                 separate_validation=False
+                 separate_validation=False,
+                 datadir=""
                  ):
-        self.data_gen = DataGen(separate_validation=separate_validation)
+        self.data_gen = DataGen(separate_validation=separate_validation, datadir=datadir)
         self.keras_data_gen_train = KerasDataGenerator(data_gen=self.data_gen, dataset="train")
         self.keras_data_gen_val = KerasDataGenerator(data_gen=self.data_gen, dataset="val")
         self.input_shape = self.data_gen.img_dim
@@ -121,22 +132,24 @@ class ResnetModel:
         x = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4),
                    activation="relu",
                    padding='same'))(self.img)
+        x = BatchNormalization()(x)
         #x = TimeDistributed(Dropout(0.5))(x)
         x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
                    activation="relu",
                    padding='same'))(x)
+        x = BatchNormalization()(x)
         #x = TimeDistributed(Dropout(0.5))(x)
-        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-                   activation="relu",
-                   padding='same'))(x)
-        # x = TimeDistributed(Dropout(0.5))(x)
-        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-                   activation="relu",
-                   padding='same'))(x)
-        # x = TimeDistributed(Dropout(0.5))(x)
-        x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-                   activation="relu",
-                   padding='same'))(x)
+        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+        #            activation="relu",
+        #            padding='same'))(x)
+        # # x = TimeDistributed(Dropout(0.5))(x)
+        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+        #            activation="relu",
+        #            padding='same'))(x)
+        # # x = TimeDistributed(Dropout(0.5))(x)
+        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
+        #            activation="relu",
+        #            padding='same'))(x)
         outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
         new_outs = []
         for i, x in enumerate(outs):
@@ -146,17 +159,20 @@ class ResnetModel:
             # x = Conv2D(64, (5, 5), strides=(2, 2),
             #                                  activation="relu",
             #                                  padding='same')(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # #x = TimeDistributed(Dropout(0.5))(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # #x = TimeDistributed(Dropout(0.5))(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
+            x = Conv2D(128, (5, 5), strides=(2, 2),
+                                             activation="relu",
+                                             padding='same')(x)
+            x = BatchNormalization()(x)
+            #x = TimeDistributed(Dropout(0.5))(x)
+            x = Conv2D(128, (5, 5), strides=(2, 2),
+                                             activation="relu",
+                                             padding='same')(x)
+            x = BatchNormalization()(x)
+            #x = TimeDistributed(Dropout(0.5))(x)
+            x = Conv2D(128, (5, 5), strides=(2, 2),
+                                             activation="relu",
+                                             padding='same')(x)
+            x = BatchNormalization()(x)
             #x = TimeDistributed(Dropout(0.5))(x)
             #x = Flatten()(x)
             x = GlobalMaxPooling2D()(x)
@@ -364,19 +380,15 @@ class ResnetModel:
 
 
 if __name__ == "__main__":
-    # dg = DataGen()
-    # keras_dg_train = KerasDataGenerator(data_gen=dg, dataset="train")
-    # keras_dg_val = KerasDataGenerator(data_gen=dg, dataset="val")
-    # while True:
-    #     time.sleep(5)
-    #     for mb in keras_dg_train:
-    #         cv = 1
-    #     for mb in keras_dg_val:
-    #         #print("counts", np.sum(keras_dg_val.ix_count == 1))
-    #         cvb = 1
-    #     print("end of loop")
-    #     keras_dg_val.ix_count.fill(0.0)
-    model = ResnetModel(epochs=500)
+    parser = argparse.ArgumentParser(description='RLScan offline analysis')
+    parser.add_argument('--model', type=str,
+                        default='resnet')  # 'lstm', 'padded_lstm', 'scapegoat', 'weighted_scapegoat' or 'comb_repr'
+    parser.add_argument('--datadir', type=str, required=True)
+    parser.add_argument('--epochs', type=int, default=500)
+    parser.add_argument('--save_model', type=int, default=1)
+    parser.add_argument('--gpu', type=int, default=0)
+    args = parser.parse_args()
+    model = ResnetModel(epochs=args.epochs, datadir=args.datadir, gpu=args.gpu)
     #model.load("saved_models/cnn_shared_5_layers_0.714248776435852_2021-02-01-10-00-25.pkl")
     #model.evaluate_on_validation_set()
     #model.show_pictures()
