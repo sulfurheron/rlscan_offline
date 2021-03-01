@@ -58,10 +58,10 @@ class KerasDataGenerator(keras.utils.Sequence):
         labels = to_categorical(labels, num_classes=self.n_classes)
         #labels[labels == 0] = 0.01
         #labels[labels == 1] = 0.99
-        if self.dataset == "val":
-            print("val counts", np.sum(self.ix_count == 1))
-        elif self.dataset == "train":
-            print("train counts", np.sum(self.ix_count == 1))
+        # if self.dataset == "val":
+        #     print("val counts", np.sum(self.ix_count == 1))
+        # elif self.dataset == "train":
+        #     print("train counts", np.sum(self.ix_count == 1))
         #print("batch index", index)
         #self.epoch_proc_time = time.time()
         return data, labels
