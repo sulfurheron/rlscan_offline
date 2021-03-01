@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import copy
 import multiprocessing as mp
 import time
+import cv2
 
 
 class DataGen:
@@ -14,7 +15,7 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(4, 256, 256, 1),
+            img_dim=(512, 512, 1),
             crop_size=50,
             separate_validation=False,
     ):
@@ -29,7 +30,7 @@ class DataGen:
             'val': {}
         }
         self.batch_size = {
-            'train': 5,
+            'train': 4,
             'val': 10
         }
         self.data_size = {
@@ -120,17 +121,18 @@ class DataGen:
 
         if self.separate_validation:
             self.data_size['val'] = len(self.val_metadata['image_file'])
-            self._img_keys['val'] = self.val_metadata['image_file']
+            self.data_size['val'] = self.data_size['val'] - self.data_size['val'] % self.batch_size['val']
+            self._img_keys['val'] = self.val_metadata['image_file'][-self.data_size['val']:]
+            for key in self.val_metadata:
+                self.val_metadata[key] = self.val_metadata[key][-self.data_size['val']:]
         print("data size", self.data_size)
         for i, img in enumerate(self._img_keys['train']):
             if not metadata['scanner_id'][i] is None:
                 self._labels['train'][img] = 1
             else:
                 self._labels['train'][img] = 0
-        if self.separate_validation:
-            val_start = 0
-        else:
-            val_start = self.data_size['train']
+
+        val_start = -self.data_size['val']
         for i, img in enumerate(self._img_keys['val']):
             if not self.val_metadata['scanner_id'][val_start + i] is None:
                 self._labels['val'][img] = 1
@@ -246,7 +248,7 @@ class DataGen:
             filename = self._img_keys[dataset][i]
             img = self.load_image(filename, dataset)
             images.append(img)
-            img[0, 0, 0] = i + 0.0
+            #img[0, 0, 0] = i + 0.0
             labels.append(self._labels[dataset][filename])
             # if labels[-1] == 0:
             #     plt.figure(figsize=(10, 2.8))
@@ -260,6 +262,8 @@ class DataGen:
         return images, labels
 
     def preprocess_image(self, img, dataset):
+        # if not img.shape == self.img_dim[1:3]:
+        #     img = cv2.resize(img, self.img_dim[1:3], cv2.INTER_AREA)
         img = (img/255.0).astype('float32')
         img -= np.mean(img)
         if not dataset == "train":
@@ -267,7 +271,7 @@ class DataGen:
         shift = np.random.randint(0, self.crop_size, size=(2))
         new_img = np.zeros(tuple(np.array(img.shape) + self.crop_size), dtype="float32")
         new_img[self.crop_size//2:-self.crop_size//2, self.crop_size//2:-self.crop_size//2] = img
-        return new_img[shift[0]:shift[0] + self.img_dim[1], shift[1]:shift[1] + self.img_dim[2]]
+        return new_img[shift[0]:shift[0] + img.shape[0], shift[1]:shift[1] + img.shape[1]]
 
 
 
@@ -282,10 +286,16 @@ class DataGen:
             with open(os.path.join(self.datadir, filename), "rb") as f:
                 jpg_frames = pickle.load(f)
         imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
-        imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
-        imgs = np.expand_dims(imgs, axis=-1)
+
+        new_img = np.zeros(tuple(np.array(imgs[0].shape) * 2), dtype='float32')
+        for i, img in enumerate(imgs):
+            img = self.preprocess_image(img, dataset)
+            new_img[i // 2 * img.shape[0]: (i // 2 + 1) * img.shape[0],
+            i % 2 * img.shape[1]: (i % 2 + 1) * img.shape[1]] = img
+        #imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
+        #imgs = np.expand_dims(imgs, axis=-1)
         #imgs = np.transpose(imgs, axes=[1, 2, 0])
-        return imgs
+        return np.reshape(new_img, new_img.shape + (1,))
 
 
 if __name__ == "__main__":

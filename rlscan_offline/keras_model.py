@@ -58,10 +58,10 @@ class KerasDataGenerator(keras.utils.Sequence):
         labels = to_categorical(labels, num_classes=self.n_classes)
         #labels[labels == 0] = 0.01
         #labels[labels == 1] = 0.99
-        # if self.dataset == "val":
-        #     print("val counts", np.sum(self.ix_count == 1))
-        # elif self.dataset == "train":
-        #     print("train counts", np.sum(self.ix_count == 1))
+        if self.dataset == "val":
+            print("val counts", np.sum(self.ix_count == 1))
+        elif self.dataset == "train":
+            print("train counts", np.sum(self.ix_count == 1))
         #print("batch index", index)
         #self.epoch_proc_time = time.time()
         return data, labels
@@ -106,7 +106,7 @@ class ResnetModel:
                  aggregate_grads=True,
                  gpu=0,
                  separate_validation=False,
-                 datadir=""
+                 datadir="/media/dmitriy/HDD/offline"
                  ):
         self.data_gen = DataGen(separate_validation=separate_validation, datadir=datadir)
         self.keras_data_gen_train = KerasDataGenerator(data_gen=self.data_gen, dataset="train")
@@ -150,50 +150,52 @@ class ResnetModel:
         # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
         #            activation="relu",
         #            padding='same'))(x)
-        x = TimeDistributed(xception.Xception(
+        x = xception.Xception(
             weights=None,
-            input_shape=(self.input_shape[1:]),
-            include_top=False,
-            pooling='max'
-        ))(x)
-        outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
-        new_outs = []
-        for i, x in enumerate(outs):
-            # x = Conv2D(32, (8, 8), strides=(4, 4),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # x = Conv2D(64, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # x = BatchNormalization()(x)
-            # #x = TimeDistributed(Dropout(0.5))(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # x = BatchNormalization()(x)
-            # #x = TimeDistributed(Dropout(0.5))(x)
-            # x = Conv2D(128, (5, 5), strides=(2, 2),
-            #                                  activation="relu",
-            #                                  padding='same')(x)
-            # x = BatchNormalization()(x)
-            # #x = TimeDistributed(Dropout(0.5))(x)
-            # #x = Flatten()(x)
-            # x = GlobalMaxPooling2D()(x)
-            new_outs.append(x)
-        # x = densenet.DenseNet121(include_top=False,
-        #                         weights=None,
-        #                         #input_tensor=x,
-        #                         input_shape=(self.input_shape),
-        #                         pooling="max")(self.img)
-        #x = TimeDistributed(Flatten())(x)
-        #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
-        x = Concatenate(axis=-1)(new_outs)
+            input_shape=(self.input_shape),
+            include_top=True,
+            pooling="average",
+            classes=2
+        )(x)
+        # outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
+        # new_outs = []
+        # for i, x in enumerate(outs):
+        #     # x = Conv2D(32, (8, 8), strides=(4, 4),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = Conv2D(64, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # #x = Flatten()(x)
+        #     # x = GlobalMaxPooling2D()(x)
+        #     new_outs.append(x)
+        # # x = densenet.DenseNet121(include_top=False,
+        # #                         weights=None,
+        # #                         #input_tensor=x,
+        # #                         input_shape=(self.input_shape),
+        # #                         pooling="max")(self.img)
+        # #x = TimeDistributed(Flatten())(x)
+        # #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
+        # x = Concatenate(axis=-1)(new_outs)
         # x = Dense(128, activation='relu', name='lin1')(x)
         #x = Dropout(0.5)(x)
-        self.output = Dense(self.num_classes, activation="softmax")(x)
+        #self.output = Dense(self.num_classes, activation="softmax")(x)
+        self.output = x
         self.model = Model(inputs=self.img, outputs=self.output)
         custom_metrics = LabelDistribution()
         self.model.compile(
@@ -396,7 +398,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', type=int, default=0)
     args = parser.parse_args()
     model = ResnetModel(epochs=args.epochs, datadir=args.datadir, gpu=args.gpu)
-    #model.load("saved_models/cnn_shared_5_layers_0.714248776435852_2021-02-01-10-00-25.pkl")
+    #model.load("saved_models/cnn_shared_5_layers_0.718869149684906_2021-03-01-09-51-29.pkl")
     #model.evaluate_on_validation_set()
     #model.show_pictures()
     #model.show_score_hist()
