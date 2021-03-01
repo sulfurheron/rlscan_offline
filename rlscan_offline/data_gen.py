@@ -15,8 +15,8 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(512, 512, 1),
-            crop_size=50,
+            img_dim=(256, 256, 1),
+            crop_size=25,
             separate_validation=False,
     ):
         self.datadir = datadir
@@ -263,7 +263,7 @@ class DataGen:
 
     def preprocess_image(self, img, dataset):
         # if not img.shape == self.img_dim[1:3]:
-        #     img = cv2.resize(img, self.img_dim[1:3], cv2.INTER_AREA)
+        img = cv2.resize(img, (128, 128), cv2.INTER_AREA)
         img = (img/255.0).astype('float32')
         img -= np.mean(img)
         if not dataset == "train":
@@ -287,7 +287,7 @@ class DataGen:
                 jpg_frames = pickle.load(f)
         imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
 
-        new_img = np.zeros(tuple(np.array(imgs[0].shape) * 2), dtype='float32')
+        new_img = np.zeros(imgs[0].shape, dtype='float32')
         for i, img in enumerate(imgs):
             img = self.preprocess_image(img, dataset)
             new_img[i // 2 * img.shape[0]: (i // 2 + 1) * img.shape[0],
