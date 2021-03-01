@@ -154,7 +154,7 @@ class ResnetModel:
             weights=None,
             input_shape=(self.input_shape),
             include_top=True,
-            pooling="average",
+            pooling="avg",
             classes=2
         )(x)
         # outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
