@@ -129,27 +129,87 @@ class ResnetModel:
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img
-        # x = TimeDistributed(Conv2D(32, (8, 8), strides=(4, 4),
-        #            activation="relu",
-        #            padding='same'))(self.img)
-        # x = BatchNormalization()(x)
-        # #x = TimeDistributed(Dropout(0.5))(x)
-        # x = TimeDistributed(Conv2D(64, (5, 5), strides=(2, 2),
-        #            activation="relu",
-        #            padding='same'))(x)
-        # x = BatchNormalization()(x)
-        #x = TimeDistributed(Dropout(0.5))(x)
-        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-        #            activation="relu",
-        #            padding='same'))(x)
-        # # x = TimeDistributed(Dropout(0.5))(x)
-        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-        #            activation="relu",
-        #            padding='same'))(x)
-        # # x = TimeDistributed(Dropout(0.5))(x)
-        # x = TimeDistributed(Conv2D(128, (5, 5), strides=(2, 2),
-        #            activation="relu",
-        #            padding='same'))(x)
+        x = Conv2D(32, (8, 8), strides=(4, 4),
+                   activation="relu",
+                   padding='same')(self.img)
+        #x = BatchNormalization()(x)
+        #x = Dropout(0.5)(x)
+        x = Conv2D(64, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same')(x)
+        #x = BatchNormalization()(x)
+        #x = Dropout(0.5)(x)
+        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same')(x)
+        #x = Dropout(0.5)(x)
+        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same')(x)
+        #x = Dropout(0.5)(x)
+        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   activation="relu",
+                   padding='same')(x)
+        # x = xception.Xception(
+        #     weights=None,
+        #     input_shape=(self.input_shape),
+        #     include_top=True,
+        #     pooling="avg",
+        #     classes=2
+        # )(x)
+        # outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
+        # new_outs = []
+        # for i, x in enumerate(outs):
+        #     # x = Conv2D(32, (8, 8), strides=(4, 4),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = Conv2D(64, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
+        #     #                                  activation="relu",
+        #     #                                  padding='same')(x)
+        #     # x = BatchNormalization()(x)
+        #     # #x = TimeDistributed(Dropout(0.5))(x)
+        #     # #x = Flatten()(x)
+        #     x = GlobalMaxPooling2D()(x)
+        #     new_outs.append(x)
+        # # x = densenet.DenseNet121(include_top=False,
+        # #                         weights=None,
+        # #                         #input_tensor=x,
+        # #                         input_shape=(self.input_shape),
+        # #                         pooling="max")(self.img)
+        # #x = TimeDistributed(Flatten())(x)
+        # #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
+        x = GlobalMaxPooling2D()(x)
+        #x = Concatenate(axis=-1)(x)
+        # x = Dense(128, activation='relu', name='lin1')(x)
+        #x = Dropout(0.5)(x)
+        self.output = Dense(self.num_classes, activation="softmax")(x)
+        #self.output = x
+        self.model = Model(inputs=self.img, outputs=self.output)
+        custom_metrics = LabelDistribution()
+        self.model.compile(
+            loss="categorical_crossentropy",
+            optimizer=Adam(learning_rate=self.learning_rate),
+            metrics=["accuracy"],
+        )
+        cv=1
+
+    def build_model_xception(self):
+        """Builds the network symbolic graph in tensorflow."""
+        self.img = Input(name="input", shape=self.input_shape, dtype='float32')
+        x = self.img
         x = xception.Xception(
             weights=None,
             input_shape=(self.input_shape),
@@ -182,7 +242,7 @@ class ResnetModel:
         #     # x = BatchNormalization()(x)
         #     # #x = TimeDistributed(Dropout(0.5))(x)
         #     # #x = Flatten()(x)
-        #     # x = GlobalMaxPooling2D()(x)
+        #     x = GlobalMaxPooling2D()(x)
         #     new_outs.append(x)
         # # x = densenet.DenseNet121(include_top=False,
         # #                         weights=None,
@@ -191,11 +251,49 @@ class ResnetModel:
         # #                         pooling="max")(self.img)
         # #x = TimeDistributed(Flatten())(x)
         # #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
-        # x = Concatenate(axis=-1)(new_outs)
+        #x = GlobalMaxPooling2D()(x)
+        #x = Concatenate(axis=-1)(x)
         # x = Dense(128, activation='relu', name='lin1')(x)
         #x = Dropout(0.5)(x)
         #self.output = Dense(self.num_classes, activation="softmax")(x)
         self.output = x
+        self.model = Model(inputs=self.img, outputs=self.output)
+        custom_metrics = LabelDistribution()
+        self.model.compile(
+            loss="categorical_crossentropy",
+            optimizer=Adam(learning_rate=self.learning_rate),
+            metrics=["accuracy"],
+        )
+        cv=1
+
+    def build_model_impala(self):
+        """Builds the network symbolic graph in tensorflow."""
+        self.img = Input(name="input", shape=self.input_shape, dtype='float32')
+        x = self.img
+        channels = [16, 32, 32]
+        for channel in channels:
+            x = Conv2D(channel, (3, 3), strides=(1, 1),
+                                             padding='same')(x)
+            x = MaxPool2D(pool_size=(3, 3), strides=(2, 2), padding='same')(x)
+
+            # residual blocks
+
+            for j in range(2):
+                block_input = x
+                x = ReLU()(x)
+                x = Conv2D(channel, (3, 3), strides=(1, 1),
+                                                 activation='relu',
+                                                 padding='same')(x)
+                x = Conv2D(channel, (3, 3), strides=(1, 1),
+                                                 padding='same')(x)
+                x = Add()([x, block_input])
+        x = ReLU()(x)
+        x = GlobalMaxPooling2D()(x)
+        #x = Concatenate(axis=-1)(x)
+        # x = Dense(128, activation='relu', name='lin1')(x)
+        #x = Dropout(0.5)(x)
+        self.output = Dense(self.num_classes, activation="softmax")(x)
+        #self.output = x
         self.model = Model(inputs=self.img, outputs=self.output)
         custom_metrics = LabelDistribution()
         self.model.compile(

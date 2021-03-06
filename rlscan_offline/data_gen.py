@@ -30,7 +30,7 @@ class DataGen:
             'val': {}
         }
         self.batch_size = {
-            'train': 4,
+            'train': 10,
             'val': 10
         }
         self.data_size = {
@@ -179,8 +179,11 @@ class DataGen:
                         print("Reached the end of the dataset {} resetting".format(dataset))
                         #np.copyto(self._ix_processed[dataset], np.zeros(self._ix_processed[dataset].shape, dtype="int32"))
                         self._start[dataset].value = 0
-                        while len(self.unprocessed_batches_local[dataset]):
+                        wait_start = time.time()
+                        while len(self.unprocessed_batches_local[dataset]) and time.time() - wait_start < 60:
                             time.sleep(0.01)
+                        if time.time() - wait_start > 60:
+                            print("Resetting by timeout")
                         ix = np.random.permutation(self.data_size[dataset]).astype('int32')
                         np.copyto(self._permuted_ix[dataset], ix)
                         for i in range(0, self.data_size[dataset], self.batch_size[dataset]):
@@ -209,7 +212,7 @@ class DataGen:
                     #print("stored batch into id", id)
                     batches_aval = sum([self._new_batch[dataset][i].value for i in self._new_batch[dataset]])
                     #print("start", dataset, self._start[dataset].value)
-                    if dataset == "train" and batches_aval < 5:
+                    if dataset == "train" and batches_aval < -5:
                         print("Prepared new batch, {} batches available".format(batches_aval))
                     self.progress_in_epoch.value = (self._start[dataset].value + 0.0)/len(self._permuted_ix[dataset])
                     #break
