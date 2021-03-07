@@ -125,7 +125,7 @@ class ResnetModel:
             self.build_model()
 
 
-    def build_model(self):
+    def build_model_simple(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img
@@ -206,7 +206,7 @@ class ResnetModel:
         )
         cv=1
 
-    def build_model_xception(self):
+    def build_model(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img

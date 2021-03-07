@@ -15,8 +15,8 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(512, 512, 1),
-            crop_size=25,
+            img_dim=(256, 512, 1),
+            crop_size=50,
             separate_validation=False,
     ):
         self.datadir = datadir
@@ -288,7 +288,7 @@ class DataGen:
         else:
             with open(os.path.join(self.datadir, filename), "rb") as f:
                 jpg_frames = pickle.load(f)
-        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames]
+        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames[:2]]
 
         new_img = np.zeros(self.img_dim[:2], dtype='float32')
         for i, img in enumerate(imgs):
