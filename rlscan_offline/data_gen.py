@@ -15,9 +15,11 @@ class DataGen:
             self,
             datadir="/media/dmitriy/HDD/offline",
             num_workers=10,
-            img_dim=(256, 512, 1),
+            img_dim=(256, 256),
             crop_size=50,
             separate_validation=False,
+            image_comb="stitch",
+            num_images=2,
     ):
         self.datadir = datadir
         self.separate_validation = separate_validation
@@ -42,8 +44,10 @@ class DataGen:
             'val': 0
         }
         self.img_dim = img_dim
+        self.num_images = num_images
         self.crop_size = crop_size
         self._batch_buffer_size = 10
+        self.image_comb = image_comb
         self._terminate = mp.Value('i', 0)
         self._start = {
             'train': mp.Value('i', 0),
@@ -56,6 +60,17 @@ class DataGen:
 
     def _init_shared_variables(self):
         """Initializes shared arrays and shared variables."""
+        if self.image_comb == "stitch":
+            if self.num_images > 2:
+                self.full_dim = tuple(2 * np.array(self.img_dim[:2])) + (1, )
+            else:
+                self.full_dim = (self.img_dim[0], 2 * self.img_dim[1], 1)
+        elif self.image_comb == "time":
+            self.full_dim = (4,) + self.img_dim + (1,)
+        elif self.image_comb == "color":
+            self.full_dim = self.img_dim + (self.num_images,)
+        else:
+            raise NotImplementedError
         self._new_batch = {'train': {}, 'val': {}}
         self._batch_dict = {'train': {}, 'val': {}}
         self._locks = {'train': {}, 'val': {}}
@@ -76,8 +91,8 @@ class DataGen:
             ix = np.random.permutation(self.data_size[dataset]).astype('int32')
             np.copyto(self._permuted_ix[dataset], ix)
             np.copyto(self._ix_processed[dataset], np.ones_like(self._ix_processed[dataset]))
-            batch_arr_size = self.batch_size[dataset] * np.product(self.img_dim)
-            batch_shape = (self.batch_size[dataset],) + self.img_dim
+            batch_arr_size = self.batch_size[dataset] * np.product(self.full_dim)
+            batch_shape = (self.batch_size[dataset],) + self.full_dim
             self.processed_batches[dataset] = self.manager.dict()
             self.unprocessed_batches[dataset] = self.manager.dict()
             self.unprocessed_batches_local[dataset] = self.manager.dict()
@@ -242,7 +257,6 @@ class DataGen:
                     #print("Left unprocessed local", len(self.unprocessed_batches_local[dataset]))
                     yield data, labels
 
-
     def load_batch(self, ix, dataset='train'):
         """Loads a batch of images defined by indices in ix list."""
         images = []
@@ -265,8 +279,8 @@ class DataGen:
         return images, labels
 
     def preprocess_image(self, img, dataset):
-        # if not img.shape == self.img_dim[1:3]:
-        #img = cv2.resize(img, (128, 128), cv2.INTER_AREA)
+        if not img.shape == self.img_dim:
+            img = cv2.resize(img, self.img_dim, cv2.INTER_AREA)
         img = (img/255.0).astype('float32')
         img -= np.mean(img)
         if not dataset == "train":
@@ -275,9 +289,6 @@ class DataGen:
         new_img = np.zeros(tuple(np.array(img.shape) + self.crop_size), dtype="float32")
         new_img[self.crop_size//2:-self.crop_size//2, self.crop_size//2:-self.crop_size//2] = img
         return new_img[shift[0]:shift[0] + img.shape[0], shift[1]:shift[1] + img.shape[1]]
-
-
-
 
     def load_image(self, filename, dataset):
         filename = filename[filename.find("offline"):]
@@ -288,17 +299,24 @@ class DataGen:
         else:
             with open(os.path.join(self.datadir, filename), "rb") as f:
                 jpg_frames = pickle.load(f)
-        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames[:2]]
-
-        new_img = np.zeros(self.img_dim[:2], dtype='float32')
-        for i, img in enumerate(imgs):
-            img = self.preprocess_image(img, dataset)
-            new_img[i // 2 * img.shape[0]: (i // 2 + 1) * img.shape[0],
-            i % 2 * img.shape[1]: (i % 2 + 1) * img.shape[1]] = img
-        #imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
-        #imgs = np.expand_dims(imgs, axis=-1)
-        #imgs = np.transpose(imgs, axes=[1, 2, 0])
-        return np.reshape(new_img, new_img.shape + (1,))
+        imgs = [np.array(Image.open(jpg)) for jpg in jpg_frames[:self.num_images]]
+        if self.image_comb == "stitch":
+            new_img = np.zeros(self.full_dim[:2], dtype='float32')
+            for i, img in enumerate(imgs):
+                img = self.preprocess_image(img, dataset)
+                new_img[i // 2 * img.shape[0]: (i // 2 + 1) * img.shape[0],
+                i % 2 * img.shape[1]: (i % 2 + 1) * img.shape[1]] = img
+            return np.reshape(new_img, self.full_dim)
+        elif self.image_comb == "time":
+            imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
+            imgs = np.expand_dims(imgs, axis=-1)
+            return imgs
+        elif self.image_comb == "color":
+            imgs = np.stack([self.preprocess_image(img, dataset) for img in imgs])
+            imgs = np.transpose(imgs, axes=[1, 2, 0])
+            return imgs
+        else:
+            raise NotImplementedError
 
 
 if __name__ == "__main__":

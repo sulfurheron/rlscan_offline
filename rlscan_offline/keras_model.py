@@ -106,107 +106,80 @@ class ResnetModel:
                  aggregate_grads=True,
                  gpu=0,
                  separate_validation=False,
-                 datadir="/media/dmitriy/HDD/offline"
+                 datadir="/media/dmitriy/HDD/offline",
+                 image_comb="time",
+                 num_images=4,
+                 architecture=None,
                  ):
-        self.data_gen = DataGen(separate_validation=separate_validation, datadir=datadir)
+        self.data_gen = DataGen(
+            separate_validation=separate_validation,
+            datadir=datadir,
+            image_comb=image_comb,
+            num_images=num_images
+        )
         self.keras_data_gen_train = KerasDataGenerator(data_gen=self.data_gen, dataset="train")
         self.keras_data_gen_val = KerasDataGenerator(data_gen=self.data_gen, dataset="val")
-        self.input_shape = self.data_gen.img_dim
+        self.input_shape = self.data_gen.full_dim
         self.num_classes = num_classes
         self.learning_rate = learning_rate
+        self.image_comb = image_comb
         self.epochs = epochs
         self.cumulative_grads = []
         self.grads_collected = 0
         self.aggregate_grads = aggregate_grads
+        self.architecture = architecture
         mydevice = "/gpu:{}".format(gpu)
         with tf.device(mydevice):
         #with strategy.scope():
             self.init_session()
-            self.build_model()
+            if architecture == "xception":
+                self.build_model_xception()
+            else:
+                self.build_model_simple()
 
 
     def build_model_simple(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img
-        x = Conv2D(32, (8, 8), strides=(4, 4),
+        base_layers = [
+            Conv2D(32, (8, 8), strides=(4, 4),
                    activation="relu",
-                   padding='same')(self.img)
-        #x = BatchNormalization()(x)
-        #x = Dropout(0.5)(x)
-        x = Conv2D(64, (5, 5), strides=(2, 2),
+                   padding='same'),
+            Conv2D(64, (5, 5), strides=(2, 2),
                    activation="relu",
-                   padding='same')(x)
-        #x = BatchNormalization()(x)
-        #x = Dropout(0.5)(x)
-        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   padding='same'),
+            Conv2D(128, (5, 5), strides=(2, 2),
                    activation="relu",
-                   padding='same')(x)
-        #x = Dropout(0.5)(x)
-        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   padding='same'),
+            Conv2D(128, (5, 5), strides=(2, 2),
                    activation="relu",
-                   padding='same')(x)
-        #x = Dropout(0.5)(x)
-        x = Conv2D(128, (5, 5), strides=(2, 2),
+                   padding='same'),
+            Conv2D(128, (5, 5), strides=(2, 2),
                    activation="relu",
-                   padding='same')(x)
-        # x = xception.Xception(
-        #     weights=None,
-        #     input_shape=(self.input_shape),
-        #     include_top=True,
-        #     pooling="avg",
-        #     classes=2
-        # )(x)
-        # outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
-        # new_outs = []
-        # for i, x in enumerate(outs):
-        #     # x = Conv2D(32, (8, 8), strides=(4, 4),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = Conv2D(64, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # #x = Flatten()(x)
-        #     x = GlobalMaxPooling2D()(x)
-        #     new_outs.append(x)
-        # # x = densenet.DenseNet121(include_top=False,
-        # #                         weights=None,
-        # #                         #input_tensor=x,
-        # #                         input_shape=(self.input_shape),
-        # #                         pooling="max")(self.img)
-        # #x = TimeDistributed(Flatten())(x)
-        # #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
-        x = GlobalMaxPooling2D()(x)
-        #x = Concatenate(axis=-1)(x)
-        # x = Dense(128, activation='relu', name='lin1')(x)
-        #x = Dropout(0.5)(x)
+                   padding='same'),
+            GlobalMaxPooling2D()
+        ]
+        if self.image_comb == "time":
+            outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
+            new_outs = []
+            for i, x in enumerate(outs):
+                for layer in base_layers:
+                    x = layer(x)
+                new_outs.append(x)
+            x = Concatenate(axis=-1)(new_outs)
+        else:
+            for layer in base_layers:
+                x = layer(x)
         self.output = Dense(self.num_classes, activation="softmax")(x)
-        #self.output = x
         self.model = Model(inputs=self.img, outputs=self.output)
-        custom_metrics = LabelDistribution()
         self.model.compile(
             loss="categorical_crossentropy",
             optimizer=Adam(learning_rate=self.learning_rate),
             metrics=["accuracy"],
         )
-        cv=1
 
-    def build_model(self):
+    def build_model_xception(self):
         """Builds the network symbolic graph in tensorflow."""
         self.img = Input(name="input", shape=self.input_shape, dtype='float32')
         x = self.img
@@ -217,54 +190,13 @@ class ResnetModel:
             pooling="avg",
             classes=2
         )(x)
-        # outs = Lambda(lambda x: tf.unstack(x, axis=1))(x)
-        # new_outs = []
-        # for i, x in enumerate(outs):
-        #     # x = Conv2D(32, (8, 8), strides=(4, 4),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = Conv2D(64, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # x = Conv2D(128, (5, 5), strides=(2, 2),
-        #     #                                  activation="relu",
-        #     #                                  padding='same')(x)
-        #     # x = BatchNormalization()(x)
-        #     # #x = TimeDistributed(Dropout(0.5))(x)
-        #     # #x = Flatten()(x)
-        #     x = GlobalMaxPooling2D()(x)
-        #     new_outs.append(x)
-        # # x = densenet.DenseNet121(include_top=False,
-        # #                         weights=None,
-        # #                         #input_tensor=x,
-        # #                         input_shape=(self.input_shape),
-        # #                         pooling="max")(self.img)
-        # #x = TimeDistributed(Flatten())(x)
-        # #x = Lambda(lambda x: tf.reshape(x, [-1, x.shape[1] * x.shape[2]]))(x)
-        #x = GlobalMaxPooling2D()(x)
-        #x = Concatenate(axis=-1)(x)
-        # x = Dense(128, activation='relu', name='lin1')(x)
-        #x = Dropout(0.5)(x)
-        #self.output = Dense(self.num_classes, activation="softmax")(x)
         self.output = x
         self.model = Model(inputs=self.img, outputs=self.output)
-        custom_metrics = LabelDistribution()
         self.model.compile(
             loss="categorical_crossentropy",
             optimizer=Adam(learning_rate=self.learning_rate),
             metrics=["accuracy"],
         )
-        cv=1
 
     def build_model_impala(self):
         """Builds the network symbolic graph in tensorflow."""
@@ -275,9 +207,7 @@ class ResnetModel:
             x = Conv2D(channel, (3, 3), strides=(1, 1),
                                              padding='same')(x)
             x = MaxPool2D(pool_size=(3, 3), strides=(2, 2), padding='same')(x)
-
             # residual blocks
-
             for j in range(2):
                 block_input = x
                 x = ReLU()(x)
@@ -289,19 +219,13 @@ class ResnetModel:
                 x = Add()([x, block_input])
         x = ReLU()(x)
         x = GlobalMaxPooling2D()(x)
-        #x = Concatenate(axis=-1)(x)
-        # x = Dense(128, activation='relu', name='lin1')(x)
-        #x = Dropout(0.5)(x)
         self.output = Dense(self.num_classes, activation="softmax")(x)
-        #self.output = x
         self.model = Model(inputs=self.img, outputs=self.output)
-        custom_metrics = LabelDistribution()
         self.model.compile(
             loss="categorical_crossentropy",
             optimizer=Adam(learning_rate=self.learning_rate),
             metrics=["accuracy"],
         )
-        cv=1
 
     def init_session(self):
         config = tf.ConfigProto(
@@ -327,13 +251,10 @@ class ResnetModel:
             print("val count", np.sum(self.keras_data_gen_val.ix_count == 1))
             self.keras_data_gen_val.ix_count.fill(0.0)
             self.all_losses['train'].append(logs['loss'])
-            self.all_losses['val'].append(logs['val_loss'])
-            if logs['val_accuracy'] >= self.max_acc:
-                self.max_acc = logs['val_accuracy']
-                print("got 0.71 validation")
-                start = time.time()
-                self.evaluate_on_validation_set()
-                print("eval time", time.time() - start)
+            #self.all_losses['val'].append(logs['val_loss'])
+            auc, acc, spec, sens = self.evaluate_on_validation_set()
+            if auc > 0.8 and auc > self.max_acc:
+                self.max_acc = auc
                 self.save()
             #self.save()
         on_epoch_end = LambdaCallback(on_epoch_end=lambda epoch, logs: print_logs(epoch, logs))
@@ -343,7 +264,7 @@ class ResnetModel:
                                         )
         self.model.fit(x=self.keras_data_gen_train,
                        epochs=self.epochs,
-                       validation_data=self.keras_data_gen_val,
+                       #validation_data=self.keras_data_gen_val,
                        #steps_per_epoch=100 // self.data_gen.batch_size['train'],
                        #validation_steps=val_steps,
                        workers=0,
@@ -382,6 +303,7 @@ class ResnetModel:
         auc = roc_auc_score(class_labels, all_logits)
         print("Validation acc, sens, spec, roc", acc, sens, spec, auc)
         cvb = 1
+        return auc, acc, spec, sens
         #return np.mean(losses)
 
     def build_roc(self, labels, scores):
@@ -494,8 +416,16 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=500)
     parser.add_argument('--save_model', type=int, default=1)
     parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--image_comb', type=str, default="time")
+    parser.add_argument('--num_images', type=int, default=4)
     args = parser.parse_args()
-    model = ResnetModel(epochs=args.epochs, datadir=args.datadir, gpu=args.gpu)
+    model = ResnetModel(
+        epochs=args.epochs,
+        datadir=args.datadir,
+        gpu=args.gpu,
+        image_comb=args.image_comb,
+        num_images=args.num_images
+    )
     #model.load("saved_models/cnn_shared_5_layers_0.718869149684906_2021-03-01-09-51-29.pkl")
     #model.evaluate_on_validation_set()
     #model.show_pictures()
